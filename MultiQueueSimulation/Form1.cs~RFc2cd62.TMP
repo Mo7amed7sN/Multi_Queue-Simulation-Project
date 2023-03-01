@@ -1,0 +1,396 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MultiQueueModels;
+using MultiQueueTesting;
+using System.IO;
+
+namespace MultiQueueSimulation
+{
+    public partial class Form1 : Form
+    {
+        SimulationSystem sys; int total_run = 0;
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            decimal eeee;
+            int dd = 4,ff=5;
+            eeee = (decimal)dd / ff;
+            MessageBox.Show(eeee.ToString());
+            sys = new SimulationSystem();
+        }
+
+        private void rd_data_Click(object sender, EventArgs e)
+        {
+            string w = "";
+            FileStream fs = new FileStream("TestCase1.txt", FileMode.Open);
+            StreamReader sr = new StreamReader(fs);
+            while(( w = sr.ReadLine() )!= null)
+            {
+                if (w == "") continue;
+
+                if( w == "NumberOfServers")
+                {
+                    sys.NumberOfServers = int.Parse(sr.ReadLine().ToString());
+                }
+                else if ( w == "StoppingNumber")
+                {
+                    sys.StoppingNumber = int.Parse(sr.ReadLine().ToString());
+                }
+                else if( w == "StoppingCriteria")
+                {
+                    if (sr.ReadLine().ToString() == "1")
+                        sys.StoppingCriteria = Enums.StoppingCriteria.NumberOfCustomers;
+                    else
+                        sys.StoppingCriteria = Enums.StoppingCriteria.SimulationEndTime;
+                }
+                else if( w == "SelectionMethod")
+                {
+                    string tmp = sr.ReadLine().ToString();
+                    if (tmp == "1")
+                        sys.SelectionMethod = Enums.SelectionMethod.HighestPriority;
+                    else if (tmp == "2")
+                        sys.SelectionMethod = Enums.SelectionMethod.Random;
+                    else
+                        sys.SelectionMethod = Enums.SelectionMethod.LeastUtilization;
+                }
+                else
+                {
+                    string tmp = sr.ReadLine();                 
+                    decimal acc = 0; int prev_min = 0;
+                    string[] arr = new string[2];
+                    while(tmp != ""){
+                        TimeDistribution td = new TimeDistribution();
+                        arr = tmp.Split(',');
+                        td.Time = int.Parse(arr[0]);
+                        td.Probability = decimal.Parse(arr[1]);
+                        acc = acc + td.Probability;
+                        td.CummProbability = acc;
+                        td.MinRange = prev_min + 1;
+                        td.MaxRange = (int)(100 * td.CummProbability);
+                        prev_min = td.MaxRange;
+                        tmp = sr.ReadLine();
+                        sys.InterarrivalDistribution.Add(td);
+                    }
+
+                    int server_id = 1;
+                    while ((w = sr.ReadLine()) != null)
+                    {
+                        List<TimeDistribution> ltd = new List<TimeDistribution>();
+                        tmp = sr.ReadLine();
+                        acc = 0; prev_min = 0;
+                        while (tmp != ""&& tmp != null)
+                        {
+                            TimeDistribution td = new TimeDistribution();
+                            arr = tmp.Split(',');
+                            td.Time = int.Parse(arr[0]);
+                            td.Probability = decimal.Parse(arr[1]);
+                            acc = acc + td.Probability;
+                            td.CummProbability = acc;
+                            td.MinRange = prev_min + 1;
+                            td.MaxRange = (int)(100 * td.CummProbability);
+                            prev_min = td.MaxRange;
+                            tmp = sr.ReadLine();
+                            ltd.Add(td);
+                        }
+
+                        Server ser = new Server();
+                        ser.ID = server_id;
+                        server_id++;
+                        ser.TimeDistribution = ltd;                     
+                        sys.Servers.Add(ser);
+                    }
+                    break;
+                }
+            }
+            MessageBox.Show("Done");
+        }
+
+
+        Random rd = new Random();
+        int rInt, prev_arrive, rInd;
+        int[] free_servers, servers_utilization, server_customers;
+
+        private void run_program_Click(object sender, EventArgs e)
+        {
+            free_servers = new int[sys.NumberOfServers];
+            servers_utilization = new int[sys.NumberOfServers];
+            server_customers = new int[sys.NumberOfServers];
+            int wait_time = 0;
+            for (int i = 0; i < sys.NumberOfServers; i++) { free_servers[i] = 0; servers_utilization[i] = 0; server_customers[i] = 0; }
+
+            if (sys.StoppingCriteria == Enums.StoppingCriteria.NumberOfCustomers)
+            {
+                for (int i = 1; i <= sys.StoppingNumber; i++)
+                {
+                    List<int> avail_servers = new List<int>();
+                    int mini = 10000, ser = 0, wait = 0;
+
+                    SimulationCase sc = new SimulationCase();
+                    sc.CustomerNumber = i;
+                    if(i == 1)
+                    {
+                        sc.RandomInterArrival = -1;
+                        sc.InterArrival = -1;
+                        sc.ArrivalTime = 0;
+
+                        prev_arrive = 0;
+                    }
+                    else
+                    {
+                        rInt = rd.Next(1, 101);
+                        sc.RandomInterArrival = rInt;
+                        for(int j = 0; j< sys.InterarrivalDistribution.Count; j++)
+                        {
+                            if(sys.InterarrivalDistribution[j].MinRange <= rInt && sys.InterarrivalDistribution[j].MaxRange >= rInt)
+                            {
+                                sc.InterArrival = sys.InterarrivalDistribution[j].Time;
+                                break;
+                            }
+                        }
+                        sc.ArrivalTime = prev_arrive + sc.InterArrival;
+                        prev_arrive = sc.ArrivalTime;
+                    }
+
+                    rInt = rd.Next(1, 101);
+                    sc.RandomService = rInt;
+                    if(sys.SelectionMethod == Enums.SelectionMethod.HighestPriority)
+                    {
+                        bool check = false;
+                        for (int j = 0; j < sys.NumberOfServers; j++) 
+                        {
+                            if(free_servers[j] <= sc.ArrivalTime)
+                            {
+                                check = true;
+                                sc.AssignedServer = sys.Servers[j];
+                                for(int k = 0; k< sc.AssignedServer.TimeDistribution.Count; k++)
+                                {
+                                    if(sc.AssignedServer.TimeDistribution[k].MinRange <= rInt && sc.AssignedServer.TimeDistribution[k].MaxRange >= rInt)
+                                    {
+                                        sc.ServiceTime = sc.AssignedServer.TimeDistribution[k].Time;                                       
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                      
+                        if (!check)
+                        {                           
+                            for (int j = 0; j < sys.NumberOfServers; j++)
+                            {
+                                if(free_servers[j] - sc.ArrivalTime < mini)
+                                {
+                                    ser = j;
+                                    mini = free_servers[j] - sc.ArrivalTime;
+                                    wait = mini;
+                                }
+                            }
+                            sc.AssignedServer = sys.Servers[ser];
+                            for (int k = 0; k < sc.AssignedServer.TimeDistribution.Count; k++)
+                            {
+                                if (sc.AssignedServer.TimeDistribution[k].MinRange <= rInt && sc.AssignedServer.TimeDistribution[k].MaxRange >= rInt)
+                                {
+                                    sc.ServiceTime = sc.AssignedServer.TimeDistribution[k].Time;
+                                    break;
+                                }
+                            }
+                        }                       
+                    }
+                    else if(sys.SelectionMethod == Enums.SelectionMethod.Random)
+                    {
+                        for (int j = 0; j < sys.NumberOfServers; j++)
+                        {
+                            if (free_servers[j] <= sc.ArrivalTime)
+                            {
+                                avail_servers.Add(j);
+                            }
+                        }
+
+                        if(avail_servers.Count > 0)
+                        {
+                            rInd = rd.Next(0, avail_servers.Count);
+                            sc.AssignedServer = sys.Servers[avail_servers[rInd]];
+                            for (int k = 0; k < sc.AssignedServer.TimeDistribution.Count; k++)
+                            {
+                                if (sc.AssignedServer.TimeDistribution[k].MinRange <= rInt && sc.AssignedServer.TimeDistribution[k].MaxRange >= rInt)
+                                {
+                                    sc.ServiceTime = sc.AssignedServer.TimeDistribution[k].Time;
+                                    break;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            for (int j = 0; j < sys.NumberOfServers; j++)
+                            {
+                                if (free_servers[j] - sc.ArrivalTime < mini)
+                                {
+                                    mini = free_servers[j] - sc.ArrivalTime;
+                                    wait = mini;
+                                }
+                            }
+                            for (int j = 0; j < sys.NumberOfServers; j++)
+                            {
+                                if (free_servers[j] - sc.ArrivalTime == mini)
+                                {
+                                    avail_servers.Add(j);
+                                }
+                            }
+
+                            rInd = rd.Next(0, avail_servers.Count);
+                            sc.AssignedServer = sys.Servers[avail_servers[rInd]];
+                            for (int k = 0; k < sc.AssignedServer.TimeDistribution.Count; k++)
+                            {
+                                if (sc.AssignedServer.TimeDistribution[k].MinRange <= rInt && sc.AssignedServer.TimeDistribution[k].MaxRange >= rInt)
+                                {
+                                    sc.ServiceTime = sc.AssignedServer.TimeDistribution[k].Time;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int j = 0; j < sys.NumberOfServers; j++)
+                        {
+                            if (free_servers[j] <= sc.ArrivalTime)
+                            {
+                                avail_servers.Add(j);
+                            }
+                        }
+
+                        if (avail_servers.Count > 0)
+                        {
+                            for(int j = 0;j < avail_servers.Count; j++)
+                            {
+                                if(servers_utilization[avail_servers[j]] < mini)
+                                {
+                                    ser = avail_servers[j];
+                                    mini = servers_utilization[avail_servers[j]];
+                                }
+                            }
+
+                            sc.AssignedServer = sys.Servers[ser];
+                            for (int k = 0; k < sc.AssignedServer.TimeDistribution.Count; k++)
+                            {
+                                if (sc.AssignedServer.TimeDistribution[k].MinRange <= rInt && sc.AssignedServer.TimeDistribution[k].MaxRange >= rInt)
+                                {
+                                    sc.ServiceTime = sc.AssignedServer.TimeDistribution[k].Time;
+                                    break;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            for (int j = 0; j < sys.NumberOfServers; j++)
+                            {
+                                if (free_servers[j] - sc.ArrivalTime < mini)
+                                {
+                                    mini = free_servers[j] - sc.ArrivalTime;
+                                    wait = mini;
+                                }
+                            }
+                            for (int j = 0; j < sys.NumberOfServers; j++)
+                            {
+                                if (free_servers[j] - sc.ArrivalTime == mini)
+                                {
+                                    avail_servers.Add(j);
+                                }
+                            }
+
+                            mini = 10000;
+                            for (int j = 0; j < avail_servers.Count; j++)
+                            {
+                                if (servers_utilization[avail_servers[j]] < mini)
+                                {
+                                    ser = avail_servers[j];
+                                    mini = servers_utilization[avail_servers[j]];
+                                }
+                            }
+
+                            sc.AssignedServer = sys.Servers[ser];
+                            for (int k = 0; k < sc.AssignedServer.TimeDistribution.Count; k++)
+                            {
+                                if (sc.AssignedServer.TimeDistribution[k].MinRange <= rInt && sc.AssignedServer.TimeDistribution[k].MaxRange >= rInt)
+                                {
+                                    sc.ServiceTime = sc.AssignedServer.TimeDistribution[k].Time;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    sc.StartTime = sc.ArrivalTime + wait;
+                    sc.EndTime = sc.ArrivalTime + wait + sc.ServiceTime;
+                    sc.TimeInQueue = wait;
+
+                    free_servers[sc.AssignedServer.ID - 1] = sc.EndTime;
+                    total_run = Math.Max(total_run, sc.EndTime);
+                    servers_utilization[sc.AssignedServer.ID - 1] += sc.ServiceTime;
+                    server_customers[sc.AssignedServer.ID - 1]++;
+                    wait_time += wait;
+
+                    sys.SimulationTable.Add(sc);
+                }
+            }
+            MessageBox.Show("Done");
+        }
+
+        private void show_outputs_Click(object sender, EventArgs e)
+        {
+            DataTable dt = new DataTable();
+            dt.Columns.Add("Customer #"); dt.Columns.Add("RandomInterArrival"); dt.Columns.Add("InterArrival"); dt.Columns.Add("ArrivalTime");
+            dt.Columns.Add("RandomService"); dt.Columns.Add("ServiceTime"); dt.Columns.Add("AssignedServer"); dt.Columns.Add("StartTime");
+            dt.Columns.Add("EndTime"); dt.Columns.Add("TimeInQueue");
+
+            for(int i = 0; i < sys.SimulationTable.Count; i++)
+            {
+                DataRow dr = dt.NewRow();
+                dr["Customer #"] = sys.SimulationTable[i].CustomerNumber.ToString();
+                dr["RandomInterArrival"] = sys.SimulationTable[i].RandomInterArrival.ToString();
+                dr["InterArrival"] = sys.SimulationTable[i].InterArrival.ToString();
+                dr["ArrivalTime"] = sys.SimulationTable[i].ArrivalTime.ToString();
+                dr["RandomService"] = sys.SimulationTable[i].RandomService.ToString();
+                dr["ServiceTime"] = sys.SimulationTable[i].ServiceTime.ToString();
+                dr["AssignedServer"] = sys.SimulationTable[i].AssignedServer.ID.ToString();
+                dr["StartTime"] = sys.SimulationTable[i].StartTime.ToString();
+                dr["EndTime"] = sys.SimulationTable[i].EndTime.ToString();
+                dr["TimeInQueue"] = sys.SimulationTable[i].TimeInQueue.ToString();
+                dt.Rows.Add(dr);
+            }
+            cus_datagridview.DataSource = dt;
+            ///////////////////////////////////////////////////////////////////////////////
+
+            DataTable dt1 = new DataTable();
+            dt1.Columns.Add("Idle Probability");
+            dt1.Columns.Add("AverageServiceTime");
+            dt1.Columns.Add("Utilization");
+            for (int i = 0; i < sys.Servers.Count; i++)
+            {
+                decimal x = total_run - servers_utilization[i]; x = x / total_run;
+                sys.Servers[i].IdleProbability = x;
+
+                x = servers_utilization[i] / server_customers[i];
+                sys.Servers[i].AverageServiceTime = x;
+
+                x = servers_utilization[i] / total_run;
+                sys.Servers[i].Utilization = x;
+
+                DataRow dr1 = dt1.NewRow();
+                dr1["Idle Probability"] = sys.Servers[i].IdleProbability;
+            }
+
+
+        }
+    }
+}

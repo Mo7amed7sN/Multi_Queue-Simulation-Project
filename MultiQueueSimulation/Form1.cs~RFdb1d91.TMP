@@ -1,0 +1,119 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MultiQueueModels;
+using MultiQueueTesting;
+using System.IO;
+
+namespace MultiQueueSimulation
+{
+    public partial class Form1 : Form
+    {
+        SimulationSystem sys;
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            sys = new SimulationSystem();
+        }
+
+        private void rd_data_Click(object sender, EventArgs e)
+        {
+            string w = "";
+            FileStream fs = new FileStream("TestCase1.txt", FileMode.Open);
+            StreamReader sr = new StreamReader(fs);
+            while(( w = sr.ReadLine() )!= null)
+            {
+                if (w == "") continue;
+
+                if( w == "NumberOfServers")
+                {
+                    sys.NumberOfServers = int.Parse(sr.ReadLine().ToString());
+                }
+                else if ( w == "StoppingNumber")
+                {
+                    sys.StoppingNumber = int.Parse(sr.ReadLine().ToString());
+                }
+                else if( w == "StoppingCriteria")
+                {
+                    if (sr.ReadLine().ToString() == "1")
+                        sys.StoppingCriteria = Enums.StoppingCriteria.NumberOfCustomers;
+                    else
+                        sys.StoppingCriteria = Enums.StoppingCriteria.SimulationEndTime;
+                }
+                else if( w == "SelectionMethod")
+                {
+                    string tmp = sr.ReadLine().ToString();
+                    if (tmp == "1")
+                        sys.SelectionMethod = Enums.SelectionMethod.HighestPriority;
+                    else if (tmp == "2")
+                        sys.SelectionMethod = Enums.SelectionMethod.Random;
+                    else
+                        sys.SelectionMethod = Enums.SelectionMethod.LeastUtilization;
+                }
+                else
+                {
+                    string tmp = sr.ReadLine();                 
+                    decimal acc = 0; int prev_min = 0;
+                    string[] arr = new string[2];
+                    while(tmp != ""){
+                        TimeDistribution td = new TimeDistribution();
+                        arr = tmp.Split(',');
+                        td.Time = int.Parse(arr[0]);
+                        td.Probability = decimal.Parse(arr[1]);
+                        acc = acc + td.Probability;
+                        td.CummProbability = acc;
+                        td.MinRange = prev_min + 1;
+                        td.MaxRange = (int)(100 * td.CummProbability);
+                        prev_min = td.MaxRange;
+                        tmp = sr.ReadLine();
+                        sys.InterarrivalDistribution.Add(td);
+                    }
+                    server_datagridview.DataSource = sys.InterarrivalDistribution;
+                    int server_id = 1;
+                    while ((w = sr.ReadLine()) != null)
+                    {
+                        List<TimeDistribution> ltd = new List<TimeDistribution>();
+                        tmp = sr.ReadLine();
+                        acc = 0; prev_min = 0;
+                        while (tmp != ""&& tmp != null)
+                        {
+                            TimeDistribution td = new TimeDistribution();
+                            arr = tmp.Split(',');
+                            td.Time = int.Parse(arr[0]);
+                            td.Probability = decimal.Parse(arr[1]);
+                            acc = acc + td.Probability;
+                            td.CummProbability = acc;
+                            td.MinRange = prev_min + 1;
+                            td.MaxRange = (int)(100 * td.CummProbability);
+                            prev_min = td.MaxRange;
+                            tmp = sr.ReadLine();
+                            ltd.Add(td);
+                        }
+                        Server ser = new Server();
+                        ser.ID = server_id;
+                        server_id++;
+                        ser.TimeDistribution = ltd;                     
+                        sys.Servers.Add(ser);
+                    }
+                    break;
+                }
+            }
+            MessageBox.Show("Done");
+        }
+
+        private void run_program_Click(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
